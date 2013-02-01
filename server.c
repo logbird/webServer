@@ -17,6 +17,7 @@
 void headers(int client);
 void requestHandle(int reqFd);
 int get_row_header(int fd, char *buf, size_t buf_size);
+void php_cgi(char const *path);
 
 int main(int argc, char *argv[])
 {
@@ -70,6 +71,10 @@ void requestHandle(int reqFd)
 
     fflush(stdout);
     close(reqFd);
+}
+
+void php_cgi(char const *path)
+{
 }
 
 //get a line HTTP header, return 0 if reaches the end.
