@@ -21,7 +21,7 @@ void php_cgi(char const *path, int fd);
 int sendHeader(int fd, char const *header);
 void headers(int client);
 //read to space
-int read_to_space(char *ret, char const *buffer, int size);
+int read_to_space(char *ret, char *buffer, int size, unsigned int *offset);
 
 int main(int argc, char *argv[])
 {
@@ -69,25 +69,30 @@ void requestHandle(int reqFd)
     char buffer[MAX_BUFFER];
     char method[METHOD_SIZE + 1];
     char header[MAX_BUFFER];
-    char script[MAX_BUFFER];
+    char script[MAX_BUFFER] = ".";
     int len = 0, tmp_len = 0, i = 0;
-    //int flags;
-    //设置成非阻塞模式
-    //flags = fcntl(reqFd, F_GETFL, 0);
-    //fcntl(reqFd, F_SETFL, flags | O_NONBLOCK);
+    int offset = 0;
 
     //First Row
     len = get_row_header(reqFd, buffer, MAX_BUFFER);
     //Get METHOD
-    read_to_space(method, buffer, METHOD_SIZE);
+    tmp_len = read_to_space(method, buffer, METHOD_SIZE, &offset);
     //Get Script
-    tmp_len = read_to_space(script, buffer, len);
-    snprintf(script, tmp_len + 1, ".%s", script);
-    fflush(stdout);
-    //!!!!!!!!!!!!!!!!!!!!!!!!!---需要更改buffer数据否则永远获取的是GET---!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    read_to_space(script+1, buffer, len - tmp_len, &offset);
 
-    headers(reqFd);
-    php_cgi(script, reqFd);
+    //!!!!!!!!!!!!!!!!!!!!!!!!!---处理404返回文件大小等---!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    if(access(script, 0) != 0)
+    {
+        sendHeader(reqFd, "HTTP/1.1 404 NOT FOUND\r\n");
+        sendHeader(reqFd, "Content-Type: text/html; Charset=UTF-8\r\n");
+        sendHeader(reqFd, "\r\n");
+        sendHeader(reqFd, "<html><head><title>找不到网页</title></head><body>您要找的网页不存在</body></html>");
+
+    }else
+    {
+        headers(reqFd);
+        php_cgi(script, reqFd);
+    }
 
     fflush(stdout);
     close(reqFd);
@@ -108,7 +113,6 @@ void php_cgi(char const *path, int fd)
     putenv("SERVER_PROTOCOL=HTTP/1.1");
     putenv("REMOTE_HOST=127.0.0.1");
     execl("/usr/local/php-dev/bin/php-cgi", "php-cgi", NULL);
-
 }
 
 //get a line HTTP header, return 0 if reaches the end.
@@ -150,15 +154,25 @@ int sendHeader(int fd, char const *header)
     return 1;
 }
 
-int read_to_space(char *ret, char const *buffer, int size)
+int read_to_space(char *ret, char *buffer, int size, unsigned int *offset)
 {
     int i = 0;
-    while(i < size && !space(buffer[i]))
+    int location = (int)*offset;
+    if(location > 0)
     {
-        ret[i] = buffer[i];
-        i++;
+        location++;
+    }else
+    {
+        location = 0;
     }
-    ret[i] = '\0';
+    while(location < size && !space(buffer[location]))
+    {
+        ret[i] = buffer[location];
+        i++;
+        location++;
+    }
+    ret[location] = '\0';
+    *offset = location;
     return i;
 }
 
