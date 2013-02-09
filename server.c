@@ -1,12 +1,14 @@
 #include <stdio.h>
 
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <time.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
+
 
 #define MAX_BUFFER 1024 
 #define METHOD_SIZE 4 
@@ -19,7 +21,8 @@ void requestHandle(int reqFd);
 int get_row_header(int fd, char *buf, size_t buf_size);
 void php_cgi(char const *path, int fd);
 int sendHeader(int fd, char const *header);
-void headers(int client);
+void error(char const *err);
+
 //read to space
 int read_to_space(char *ret, char *buffer, int size, unsigned int *offset);
 
@@ -72,6 +75,7 @@ void requestHandle(int reqFd)
     char script[MAX_BUFFER] = ".";
     int len = 0, tmp_len = 0, i = 0;
     int offset = 0;
+    struct stat script_st;
 
     //First Row
     len = get_row_header(reqFd, buffer, MAX_BUFFER);
@@ -90,7 +94,16 @@ void requestHandle(int reqFd)
 
     }else
     {
-        headers(reqFd);
+        sendHeader(reqFd, "HTTP/1.1 200 OK\r\n");
+        sendHeader(reqFd, "Content-Type: text/html; Charset=UTF-8\r\n");
+        //Content-Length
+        if(stat(script, &script_st) == -1)
+        {
+            error("Err1");
+        }
+        sprintf(header, "Content-Length: %d\r\n", (int)script_st.st_size);
+        sendHeader(reqFd, header);
+
         php_cgi(script, reqFd);
     }
 
@@ -135,13 +148,6 @@ int get_row_header(int fd, char *buf, size_t buf_size)
     return i;
 }
 
-void headers(int client)
-{
-    char buf[MAX_BUFFER];
-    sendHeader(client, "HTTP/1.1 200 OK\r\n");
-    sendHeader(client, "Content-Type: text/html\r\n");
-}
-
 int sendHeader(int fd, char const *header)
 {
     char buf[MAX_BUFFER];
@@ -150,7 +156,10 @@ int sendHeader(int fd, char const *header)
         return -1;
     }
     sprintf(buf, "%s", header);
-    send(fd, buf, strlen(buf), 0);
+    if(send(fd, buf, strlen(buf), 0) == -1)
+    {
+        error("Send Err!");
+    }
     return 1;
 }
 
@@ -176,3 +185,7 @@ int read_to_space(char *ret, char *buffer, int size, unsigned int *offset)
     return i;
 }
 
+void error(char const *err)
+{
+    perror(err);
+}
