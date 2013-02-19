@@ -1,114 +1,22 @@
 #include <stdio.h>
 
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <arpa/inet.h>
 #include <time.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
 
-
-#define MAX_BUFFER 1024 
-#define METHOD_SIZE 4 
-#define SERV_PORT 8080
-#define MAX_CONN 5
-#define space(x) isspace((int)x)
+#include "core.h"
 
 
-void requestHandle(int reqFd);
-int get_row_header(int fd, char *buf, size_t buf_size);
 void php_cgi(char const *path, int fd);
-int sendHeader(int fd, char const *header);
-void error(char const *err);
-
-//read to space
-int read_to_space(char *ret, char *buffer, int size, unsigned int *offset);
 
 int main(int argc, char *argv[])
 {
-    int servFd, reqFd;
-    struct sockaddr_in servaddr;
-    pid_t pid;
-
-    servFd = socket(AF_INET, SOCK_STREAM, 0);
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT);
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if(bind(servFd, (struct sockaddr*)&servaddr, sizeof(servaddr)))
-    {
-        printf("server bind port %d failed!\n", SERV_PORT);
-        exit(EXIT_FAILURE);
-    }
-    listen(servFd, MAX_CONN);
-    printf("Listen %d, Max Connection:%d\n", SERV_PORT, MAX_CONN);
-
-    while(1)
-    {
-        reqFd = accept(servFd, (struct sockaddr*)NULL, NULL);
-        if(reqFd >= 0)
-        {
-            pid = fork();
-            if(pid == 0)
-            {
-                requestHandle(reqFd);
-                exit(EXIT_SUCCESS);
-            }else if(pid > 0)
-            {
-                wait();
-            }
-        }
-        close(reqFd);
-    }
-    close(servFd);
-    return 0;
-}
-
-void requestHandle(int reqFd)
-{
-    char buffer[MAX_BUFFER];
-    char method[METHOD_SIZE + 1];
-    char header[MAX_BUFFER];
-    char script[MAX_BUFFER] = ".";
-    int len = 0, tmp_len = 0, i = 0;
-    int offset = 0;
-    struct stat script_st;
-
-    //First Row
-    len = get_row_header(reqFd, buffer, MAX_BUFFER);
-    //Get METHOD
-    tmp_len = read_to_space(method, buffer, METHOD_SIZE, &offset);
-    //Get Script
-    read_to_space(script+1, buffer, len - tmp_len, &offset);
-
-    //!!!!!!!!!!!!!!!!!!!!!!!!!---处理404返回文件大小等---!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    if(access(script, 0) != 0)
-    {
-        sendHeader(reqFd, "HTTP/1.1 404 NOT FOUND\r\n");
-        sendHeader(reqFd, "Content-Type: text/html; Charset=UTF-8\r\n");
-        sendHeader(reqFd, "\r\n");
-        sendHeader(reqFd, "<html><head><title>找不到网页</title></head><body>您要找的网页不存在</body></html>");
-
-    }else
-    {
-        sendHeader(reqFd, "HTTP/1.1 200 OK\r\n");
-        sendHeader(reqFd, "Content-Type: text/html; Charset=UTF-8\r\n");
-        //Content-Length
-        if(stat(script, &script_st) == -1)
-        {
-            error("Err1");
-        }
-        sprintf(header, "Content-Length: %d\r\n", (int)script_st.st_size);
-        sendHeader(reqFd, header);
-
-        php_cgi(script, reqFd);
-    }
-
-    fflush(stdout);
-    close(reqFd);
+    server_init();
+    server_start();
+    server_listen();
 }
 
 void php_cgi(char const *path, int fd)
@@ -128,64 +36,4 @@ void php_cgi(char const *path, int fd)
     execl("/usr/local/php-dev/bin/php-cgi", "php-cgi", NULL);
 }
 
-//get a line HTTP header, return 0 if reaches the end.
-int get_row_header(int fd, char *buf, size_t buf_size)
-{
-    int c = 0, count = 0, i = 0;
-    while(i < buf_size && c != '\n')
-    {
-        count = recv(fd, &c, 1, 0);
-        if(count <= 0)
-            break;
-        buf[i] = c;
-        i++;
-    }
-    buf[i] = '\0';
-    if((i == 1 && buf[0] == '\n') || (i == 2 && buf[0] == '\r' && buf[1] == '\n'))
-    {
-        i = 0;
-    }
-    return i;
-}
 
-int sendHeader(int fd, char const *header)
-{
-    char buf[MAX_BUFFER];
-    if(buf == NULL)
-    {
-        return -1;
-    }
-    sprintf(buf, "%s", header);
-    if(send(fd, buf, strlen(buf), 0) == -1)
-    {
-        error("Send Err!");
-    }
-    return 1;
-}
-
-int read_to_space(char *ret, char *buffer, int size, unsigned int *offset)
-{
-    int i = 0;
-    int location = (int)*offset;
-    if(location > 0)
-    {
-        location++;
-    }else
-    {
-        location = 0;
-    }
-    while(location < size && !space(buffer[location]))
-    {
-        ret[i] = buffer[location];
-        i++;
-        location++;
-    }
-    ret[location] = '\0';
-    *offset = location;
-    return i;
-}
-
-void error(char const *err)
-{
-    perror(err);
-}

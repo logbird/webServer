@@ -1,4 +1,4 @@
-PROFILES=server.c
+PROFILES=server.c core.c util.c http.c hash.c
 PROOBJS=$(PROFILES:.c=.o)
 PROFLAGS=
 TARGET=running
@@ -13,4 +13,6 @@ $(TARGET) : $(PROOBJS)
 	gcc -c -o $@ $<
 
 clean:
-	rm -rf *.o
+	rm -rf $(PROOBJS)
+	rm -rf $(TARGET)
+ 
